@@ -706,30 +706,32 @@ def load_student_info(file):
     }
 
     # 컬럼 인덱스 범위 검증 및 데이터 처리
+    skipped_rows = []
+    valid_count = 0
+
     for idx, row in df.iterrows():
         try:
+            # 학번과 이름이 모두 비어있으면 빈 행으로 간주하고 건너뛰기
+            is_student_num_empty = pd.isna(row[df.columns[0]]) or str(row[df.columns[0]]).strip() == ''
+            is_name_empty = pd.isna(row[df.columns[2]]) or str(row[df.columns[2]]).strip() == ''
+
+            # 둘 다 비어있으면 건너뛰기 (완전히 빈 행)
+            if is_student_num_empty and is_name_empty:
+                skipped_rows.append(idx + 2)
+                continue
+
+            # 학번이나 이름 중 하나만 비어있으면 경고하고 건너뛰기
+            if is_student_num_empty:
+                skipped_rows.append(idx + 2)
+                continue
+
+            if is_name_empty:
+                skipped_rows.append(idx + 2)
+                continue
+
             student_num = str(row[df.columns[0]])  # 학번
-            phone = str(row[df.columns[1]])        # 전화번호
-            name = str(row[df.columns[2]])         # 이름
-
-            # 빈 값 체크
-            if pd.isna(row[df.columns[0]]) or str(row[df.columns[0]]).strip() == '':
-                raise Exception(
-                    f"❌ 학생 정보 데이터 오류\n\n"
-                    f"{idx + 2}번째 행의 학번이 비어있습니다.\n\n"
-                    f"해결방법:\n"
-                    f"1. 모든 학생의 학번을 입력하세요\n"
-                    f"2. 빈 행이 있다면 삭제하세요"
-                )
-
-            if pd.isna(row[df.columns[2]]) or str(row[df.columns[2]]).strip() == '':
-                raise Exception(
-                    f"❌ 학생 정보 데이터 오류\n\n"
-                    f"{idx + 2}번째 행의 이름이 비어있습니다.\n\n"
-                    f"해결방법:\n"
-                    f"1. 모든 학생의 이름을 입력하세요\n"
-                    f"2. 빈 행이 있다면 삭제하세요"
-                )
+            phone = str(row[df.columns[1]]) if not pd.isna(row[df.columns[1]]) else ''  # 전화번호 (선택)
+            name = str(row[df.columns[2]])  # 이름
 
             full_id = student_num + phone  # 학번 + 전화번호
 
@@ -742,16 +744,33 @@ def load_student_info(file):
             # 3가지 방식으로 저장
             student_info_dict['by_full'][full_id] = info
             student_info_dict['by_student_id'][student_num] = info
-            student_info_dict['by_phone'][phone] = info
+            if phone:  # 전화번호가 있을 때만 저장
+                student_info_dict['by_phone'][phone] = info
+
+            valid_count += 1
 
         except IndexError:
-            raise Exception(
-                f"❌ 학생 정보 파일 구조 오류\n\n"
-                f"{idx + 2}번째 행에 필요한 컬럼이 부족합니다.\n"
-                f"필요: 3개 컬럼 (학번, 전화번호, 이름)\n\n"
-                f"해결방법:\n"
-                f"1. 각 행마다 학번, 전화번호, 이름이 모두 있는지 확인하세요\n"
-                f"2. 샘플 파일을 다운로드하여 형식을 확인하세요"
+            # 컬럼이 부족한 행은 건너뛰기
+            skipped_rows.append(idx + 2)
+            continue
+
+    # 건너뛴 행이 있으면 경고 표시 (Streamlit import 필요)
+    if skipped_rows and len(skipped_rows) > 0:
+        import streamlit as st
+        if len(skipped_rows) <= 5:
+            st.warning(
+                f"⚠️ 학생 정보 파일 일부 행 건너뛰기\n\n"
+                f"건너뛴 행: {', '.join(map(str, skipped_rows))}\n"
+                f"(학번 또는 이름이 비어있거나 컬럼이 부족함)\n\n"
+                f"유효한 학생 정보: {valid_count}명"
+            )
+        else:
+            st.warning(
+                f"⚠️ 학생 정보 파일 일부 행 건너뛰기\n\n"
+                f"건너뛴 행 수: {len(skipped_rows)}개\n"
+                f"첫 5개 행: {', '.join(map(str, skipped_rows[:5]))}\n"
+                f"(학번 또는 이름이 비어있거나 컬럼이 부족함)\n\n"
+                f"유효한 학생 정보: {valid_count}명"
             )
 
     return student_info_dict
