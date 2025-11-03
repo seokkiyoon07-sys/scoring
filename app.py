@@ -930,16 +930,20 @@ def generate_subject_pdf_report(subject, subject_df, subject_label):
     return buffer
 
 
-def display_subject_statistics(subject_df, subject_code, result_df=None):
+def display_subject_statistics(subject_df, subject_code, result_df=None, subject_name=None):
     """과목별 상세 통계를 표시하는 공통 함수
 
     Args:
         subject_df: 해당 과목의 채점 결과 DataFrame
         subject_code: 과목 코드 (str)
         result_df: 전체 결과 DataFrame (오답 CSV 다운로드용, optional)
+        subject_name: 과목명 (str, optional) - 다운로드 파일명에 사용
     """
+    # 과목명이 제공되지 않으면 과목코드를 사용
+    if subject_name is None:
+        subject_name = subject_code
     # 과목별 기본 통계
-    st.subheader(f"📊 {subject_code} 기본 통계")
+    st.subheader(f"📊 {subject_name} 기본 통계")
     col1, col2, col3, col4, col5 = st.columns(5)
 
     with col1:
@@ -971,13 +975,35 @@ def display_subject_statistics(subject_df, subject_code, result_df=None):
             min_label_s = f"수험번호: {min_row_s['수험번호']}"
         st.metric("최저 점수", f"{min_score_s}점", delta=min_label_s)
 
-    # 점수 분포 (10점 단위)
+    # 점수 분포 - 한국사와 탐구는 50점 만점, 나머지는 100점 만점
     st.markdown("---")
-    st.subheader("📊 점수 분포 (10점 단위)")
 
-    # 10점 단위로 구간 나누기
-    bins = list(range(0, 101, 10))
-    labels = [f"{i}-{i+9}점" for i in range(0, 100, 10)]
+    # 한국사(1) 또는 탐구 과목(11-27) 확인
+    is_50_point_subject = False
+    subject_code_str = str(subject_code)
+
+    # 한국사 확인
+    if subject_code_str == "1" or subject_code_str == "한국사":
+        is_50_point_subject = True
+    # 탐구 과목 확인 (과목코드 11-27)
+    else:
+        try:
+            code_num = int(float(subject_code_str))
+            if 11 <= code_num <= 27:
+                is_50_point_subject = True
+        except:
+            pass
+
+    if is_50_point_subject:
+        st.subheader("📊 점수 분포 (5점 단위)")
+        # 50점 만점: 5점 단위로 구간 나누기
+        bins = list(range(0, 51, 5))
+        labels = [f"{i}-{i+4}점" for i in range(0, 50, 5)]
+    else:
+        st.subheader("📊 점수 분포 (10점 단위)")
+        # 100점 만점: 10점 단위로 구간 나누기
+        bins = list(range(0, 101, 10))
+        labels = [f"{i}-{i+9}점" for i in range(0, 100, 10)]
 
     # 구간별 인원 계산
     subject_df_temp = subject_df.copy()
@@ -1051,9 +1077,9 @@ def display_subject_statistics(subject_df, subject_code, result_df=None):
             # 오답 분포 CSV 다운로드
             wrong_csv = all_wrong_df.to_csv(index=False, encoding='utf-8-sig')
             st.download_button(
-                label=f"📥 {subject_code} 오답 분포 CSV 다운로드",
+                label=f"📥 {subject_name} 오답 분포 CSV 다운로드",
                 data=wrong_csv,
-                file_name=f"{subject_code}_오답분포_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                file_name=f"{subject_name}_오답분포_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
@@ -1071,7 +1097,7 @@ def display_subject_statistics(subject_df, subject_code, result_df=None):
         st.download_button(
             label=f"📥 CSV 다운로드",
             data=subject_csv,
-            file_name=f"{subject_code}_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+            file_name=f"{subject_name}_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
             use_container_width=True
         )
@@ -1082,11 +1108,11 @@ def display_subject_statistics(subject_df, subject_code, result_df=None):
             button_key = f"pdf_{subject_code}_{id(subject_df)}"
             if st.button(f"📄 PDF 리포트 생성", key=button_key, use_container_width=True):
                 with st.spinner("PDF 생성 중..."):
-                    pdf_buffer = generate_subject_pdf_report(subject_code, subject_df, subject_code)
+                    pdf_buffer = generate_subject_pdf_report(subject_name, subject_df, subject_code)
                     st.download_button(
                         label=f"📥 PDF 다운로드",
                         data=pdf_buffer,
-                        file_name=f"{subject_code}_리포트_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                        file_name=f"{subject_name}_리포트_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
                         mime="application/pdf",
                         use_container_width=True,
                         key=f"pdf_download_{subject_code}_{id(subject_df)}"
@@ -1293,10 +1319,18 @@ def grade_students(student_df, answer_df, student_info_dict=None, subject_code_m
                 result_dict['전화번호'] = matched_info['전화번호']
                 result_dict['이름'] = matched_info['이름']
         
-        # 과목명 매핑
+        # 과목명 매핑 (정수와 문자열 모두 처리)
         subject_name = subject
-        if subject_code_mapping and str(subject) in subject_code_mapping:
-            subject_name = subject_code_mapping[str(subject)]
+        if subject_code_mapping:
+            # 문자열로 변환하여 조회
+            subject_str = str(subject)
+            if subject_str in subject_code_mapping:
+                subject_name = subject_code_mapping[subject_str]
+            # 정수로 조회 (소수점 제거)
+            elif isinstance(subject, (int, float)):
+                subject_int_str = str(int(subject))
+                if subject_int_str in subject_code_mapping:
+                    subject_name = subject_code_mapping[subject_int_str]
         
         result_dict.update({
             '과목코드': subject,
@@ -1440,12 +1474,13 @@ if student_file and answer_file:
             # 과목별 통계 요약
             st.markdown("---")
             st.subheader("📚 과목별 통계 요약")
-            
-            subject_stats = result_df.groupby('과목코드').agg({
+
+            # 과목명으로 그룹화 (과목코드 대신)
+            subject_stats = result_df.groupby('과목명').agg({
                 '수험번호': 'count',
                 '총점': ['mean', 'std', 'max', 'min']
             }).round(2)
-            
+
             subject_stats.columns = ['응시 인원', '평균', '표준편차', '최고점', '최저점']
             st.dataframe(subject_stats, use_container_width=True)
             
@@ -1454,44 +1489,138 @@ if student_file and answer_file:
             st.subheader("📖 과목별 상세 통계")
             
             subjects = sorted(result_df['과목코드'].unique().tolist())
-            
+
             if len(subjects) > 1:
-                tabs = st.tabs([f"📘 {subject}" for subject in subjects])
+                # 과목명으로 탭 제목 생성
+                subject_names_for_tabs = []
+                for subject in subjects:
+                    subject_df_temp = result_df[result_df['과목코드'] == subject]
+                    if '과목명' in subject_df_temp.columns and len(subject_df_temp) > 0:
+                        subject_names_for_tabs.append(subject_df_temp['과목명'].iloc[0])
+                    else:
+                        subject_names_for_tabs.append(subject)
+
+                tabs = st.tabs([f"📘 {name}" for name in subject_names_for_tabs])
 
                 for tab, subject in zip(tabs, subjects):
                     with tab:
                         # 해당 과목 데이터 필터링
                         subject_df = result_df[result_df['과목코드'] == subject].copy()
 
+                        # 과목명 가져오기 (첫 번째 행의 과목명)
+                        subject_name = subject_df['과목명'].iloc[0] if '과목명' in subject_df.columns else subject
+
                         # 공통 함수 호출
-                        display_subject_statistics(subject_df, subject, result_df)
+                        display_subject_statistics(subject_df, subject, result_df, subject_name)
             else:
                 # 과목이 하나만 있는 경우 탭 없이 바로 표시
                 subject = subjects[0]
                 subject_df = result_df.copy()
 
+                # 과목명 가져오기 (첫 번째 행의 과목명)
+                subject_name = subject_df['과목명'].iloc[0] if '과목명' in subject_df.columns else subject
+
                 # 공통 함수 호출
-                display_subject_statistics(subject_df, subject, result_df)
+                display_subject_statistics(subject_df, subject, result_df, subject_name)
 
             # 전체 다운로드
             st.markdown("---")
             st.subheader("💾 전체 결과 다운로드")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # CSV 다운로드
-                csv = result_df.to_csv(index=False, encoding='utf-8-sig')
-                st.download_button(
-                    label="📥 전체 채점 결과 CSV 다운로드",
-                    data=csv,
-                    file_name=f"전체_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv",
-                    use_container_width=True
-                )
-            
-            with col2:
-                # 전체 통계 리포트 이미지 다운로드
+
+            # 탐구 과목인지 확인 (2개 이상의 과목이 있는 경우)
+            is_tamgu = st.session_state.get('subject_type') == '탐구'
+
+            if is_tamgu and len(subjects) >= 2:
+                # 탐구: 채점결과와 오답분포를 별도 파일로 다운로드
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    # 1. 채점결과 Excel 다운로드
+                    score_buffer = io.BytesIO()
+                    with pd.ExcelWriter(score_buffer, engine='openpyxl') as writer:
+                        # 첫 번째 시트: 전체 채점결과 (모든 과목)
+                        result_df.to_excel(writer, sheet_name='전체 채점결과', index=False)
+
+                        # 각 과목별 채점결과 시트
+                        for subject in subjects:
+                            subject_df = result_df[result_df['과목코드'] == subject].copy()
+                            # 과목명 가져오기
+                            subject_name = subject_df['과목명'].iloc[0] if '과목명' in subject_df.columns else str(subject)
+                            # 시트명은 최대 31자로 제한
+                            sheet_name = subject_name[:31] if len(subject_name) > 31 else subject_name
+                            subject_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                    score_buffer.seek(0)
+                    st.download_button(
+                        label="📥 채점 결과 Excel 다운로드",
+                        data=score_buffer,
+                        file_name=f"전체_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="download_scores"
+                    )
+
+                with col2:
+                    # 2. 오답분포 Excel 다운로드
+                    wrong_buffer = io.BytesIO()
+                    with pd.ExcelWriter(wrong_buffer, engine='openpyxl') as writer:
+                        for subject in subjects:
+                            subject_df = result_df[result_df['과목코드'] == subject].copy()
+                            # 과목명 가져오기
+                            subject_name = subject_df['과목명'].iloc[0] if '과목명' in subject_df.columns else str(subject)
+
+                            # 오답분포 계산
+                            wrong_question_counts = {}
+                            for idx, row in subject_df.iterrows():
+                                wrong_nums = row['오답번호']
+                                if wrong_nums and wrong_nums != '없음':
+                                    for num_str in wrong_nums.split(','):
+                                        try:
+                                            num = int(num_str.strip())
+                                            wrong_question_counts[num] = wrong_question_counts.get(num, 0) + 1
+                                        except:
+                                            pass
+
+                            if wrong_question_counts:
+                                sorted_wrong = sorted(wrong_question_counts.items(), key=lambda x: x[1], reverse=True)
+                                all_wrong_df = pd.DataFrame(sorted_wrong, columns=['문항 번호', '오답 인원'])
+                                all_wrong_df['오답률'] = (all_wrong_df['오답 인원'] / len(subject_df) * 100).round(1).astype(str) + '%'
+
+                                # 시트명은 과목명 사용
+                                sheet_name = subject_name[:31] if len(subject_name) > 31 else subject_name
+                                all_wrong_df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+                    wrong_buffer.seek(0)
+                    st.download_button(
+                        label="📥 오답 분포 Excel 다운로드",
+                        data=wrong_buffer,
+                        file_name=f"전체_오답분포_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="download_wrongs"
+                    )
+            else:
+                # 일반 과목: CSV 다운로드
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    csv = result_df.to_csv(index=False, encoding='utf-8-sig')
+                    st.download_button(
+                        label="📥 전체 채점 결과 CSV 다운로드",
+                        data=csv,
+                        file_name=f"전체_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+
+                with col2:
+                    # 전체 통계 리포트 이미지 다운로드 - 일반 과목용 placeholder
+                    st.info("일반 과목은 CSV로 다운로드됩니다")
+
+            # 전체 통계 리포트 이미지 (공통)
+            st.markdown("---")
+            col_img1, col_img2 = st.columns([1, 1])
+            with col_img1:
                 if st.button("📊 전체 통계 리포트 이미지 생성", use_container_width=True):
                     with st.spinner("이미지 생성 중..."):
                         # 통계 리포트 이미지 생성
