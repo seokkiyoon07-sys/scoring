@@ -257,8 +257,8 @@ with st.sidebar:
         )
     
     student_file = st.file_uploader(
-        "학생 답안 CSV 파일을 업로드하세요",
-        type=['csv'],
+        "학생 답안 파일을 업로드하세요 (CSV 또는 Excel)",
+        type=['csv', 'xlsx', 'xls'],
         key='student'
     )
     
@@ -295,8 +295,8 @@ with st.sidebar:
     )
     
     answer_file = st.file_uploader(
-        "정답/배점 CSV 파일을 업로드하세요",
-        type=['csv'],
+        "정답/배점 파일을 업로드하세요 (CSV 또는 Excel)",
+        type=['csv', 'xlsx', 'xls'],
         key='answer'
     )
     
@@ -324,8 +324,8 @@ with st.sidebar:
     )
     
     student_info_file = st.file_uploader(
-        "학생 정보 CSV 파일을 업로드하세요 (선택사항)",
-        type=['csv'],
+        "학생 정보 파일을 업로드하세요 (CSV 또는 Excel, 선택사항)",
+        type=['csv', 'xlsx', 'xls'],
         key='student_info',
         help="학번 또는 전화번호로 유연하게 매칭됩니다. 완전 매칭 → 학번 매칭 → 전화번호 매칭 순서로 시도합니다."
     )
@@ -374,7 +374,7 @@ def load_student_data(file, is_tamgu=False):
     """학생 답안 파일 로드
 
     Args:
-        file: CSV 파일 객체
+        file: CSV 또는 Excel 파일 객체
         is_tamgu: 탐구 과목 여부 (기본값: False)
 
     Returns:
@@ -385,20 +385,41 @@ def load_student_data(file, is_tamgu=False):
         pd.errors.EmptyDataError: 빈 파일일 경우
         Exception: 기타 파일 읽기 오류
     """
+    # 파일 확장자 확인
+    file_name = file.name.lower() if hasattr(file, 'name') else ''
+    is_excel = file_name.endswith('.xlsx') or file_name.endswith('.xls')
+    
     try:
-        df = pd.read_csv(file, encoding='utf-8')
+        if is_excel:
+            # Excel 파일 읽기
+            df = pd.read_excel(file, engine='openpyxl')
+        else:
+            # CSV 파일 읽기 - UTF-8 시도
+            df = pd.read_csv(file, encoding='utf-8')
     except UnicodeDecodeError:
-        # UTF-8로 읽기 실패 시 CP949(한글 Windows 인코딩) 시도
-        try:
-            df = pd.read_csv(file, encoding='cp949')
-        except Exception as e:
+        # CSV 파일의 경우 UTF-8로 읽기 실패 시 CP949(한글 Windows 인코딩) 시도
+        if not is_excel:
+            try:
+                file.seek(0)  # 파일 포인터를 처음으로 되돌림
+                df = pd.read_csv(file, encoding='cp949')
+            except Exception as e:
+                raise Exception(
+                    f"❌ 파일 인코딩 오류\n\n"
+                    f"원인: UTF-8과 CP949(한글 Windows) 인코딩 모두 실패했습니다.\n\n"
+                    f"해결방법:\n"
+                    f"1. Excel 파일로 저장하거나\n"
+                    f"2. CSV 파일을 Excel에서 다시 저장할 때 'UTF-8' 인코딩 선택\n"
+                    f"3. 메모장에서 '다른 이름으로 저장' → 인코딩을 'UTF-8'로 선택\n\n"
+                    f"상세 오류: {str(e)}"
+                )
+        else:
             raise Exception(
-                f"❌ 파일 인코딩 오류\n\n"
-                f"원인: UTF-8과 CP949(한글 Windows) 인코딩 모두 실패했습니다.\n\n"
+                f"❌ Excel 파일 읽기 오류\n\n"
+                f"Excel 파일을 읽는 중 오류가 발생했습니다.\n\n"
                 f"해결방법:\n"
-                f"1. CSV 파일을 Excel에서 다시 저장할 때 'UTF-8' 인코딩 선택\n"
-                f"2. 메모장에서 '다른 이름으로 저장' → 인코딩을 'UTF-8'로 선택\n\n"
-                f"상세 오류: {str(e)}"
+                f"1. 파일이 올바른 Excel 형식(.xlsx, .xls)인지 확인하세요\n"
+                f"2. 파일이 손상되지 않았는지 확인하세요\n"
+                f"3. 다른 프로그램으로 파일을 열어보세요"
             )
     except pd.errors.EmptyDataError:
         raise Exception(
@@ -409,13 +430,15 @@ def load_student_data(file, is_tamgu=False):
             f"2. 샘플 파일을 다운로드하여 형식을 확인하세요"
         )
     except Exception as e:
+        file_type = "Excel" if is_excel else "CSV"
         raise Exception(
             f"❌ 파일 읽기 오류\n\n"
-            f"학생 답안 파일을 읽는 중 오류가 발생했습니다.\n\n"
+            f"학생 답안 {file_type} 파일을 읽는 중 오류가 발생했습니다.\n\n"
             f"해결방법:\n"
-            f"1. CSV 파일 형식이 올바른지 확인하세요\n"
+            f"1. {file_type} 파일 형식이 올바른지 확인하세요\n"
             f"2. 파일이 손상되지 않았는지 확인하세요\n"
-            f"3. 다른 CSV 뷰어로 파일을 열어보세요\n\n"
+            f"3. 다른 프로그램으로 파일을 열어보세요\n"
+            f"4. Excel 파일인 경우 첫 번째 시트에 데이터가 있는지 확인하세요\n\n"
             f"상세 오류: {str(e)}"
         )
 
@@ -535,7 +558,7 @@ def load_answer_data(file):
     """정답/배점 파일 로드
 
     Args:
-        file: CSV 파일 객체
+        file: CSV 또는 Excel 파일 객체
 
     Returns:
         pandas.DataFrame: 정답 및 배점 데이터
@@ -545,20 +568,41 @@ def load_answer_data(file):
         pd.errors.EmptyDataError: 빈 파일일 경우
         Exception: 기타 파일 읽기 오류
     """
+    # 파일 확장자 확인
+    file_name = file.name.lower() if hasattr(file, 'name') else ''
+    is_excel = file_name.endswith('.xlsx') or file_name.endswith('.xls')
+    
     try:
-        df = pd.read_csv(file, encoding='utf-8')
+        if is_excel:
+            # Excel 파일 읽기
+            df = pd.read_excel(file, engine='openpyxl')
+        else:
+            # CSV 파일 읽기 - UTF-8 시도
+            df = pd.read_csv(file, encoding='utf-8')
     except UnicodeDecodeError:
-        # UTF-8로 읽기 실패 시 CP949(한글 Windows 인코딩) 시도
-        try:
-            df = pd.read_csv(file, encoding='cp949')
-        except Exception as e:
+        # CSV 파일의 경우 UTF-8로 읽기 실패 시 CP949(한글 Windows 인코딩) 시도
+        if not is_excel:
+            try:
+                file.seek(0)  # 파일 포인터를 처음으로 되돌림
+                df = pd.read_csv(file, encoding='cp949')
+            except Exception as e:
+                raise Exception(
+                    f"❌ 파일 인코딩 오류\n\n"
+                    f"원인: UTF-8과 CP949(한글 Windows) 인코딩 모두 실패했습니다.\n\n"
+                    f"해결방법:\n"
+                    f"1. Excel 파일로 저장하거나\n"
+                    f"2. CSV 파일을 Excel에서 다시 저장할 때 'UTF-8' 인코딩 선택\n"
+                    f"3. 메모장에서 '다른 이름으로 저장' → 인코딩을 'UTF-8'로 선택\n\n"
+                    f"상세 오류: {str(e)}"
+                )
+        else:
             raise Exception(
-                f"❌ 파일 인코딩 오류\n\n"
-                f"원인: UTF-8과 CP949(한글 Windows) 인코딩 모두 실패했습니다.\n\n"
+                f"❌ Excel 파일 읽기 오류\n\n"
+                f"Excel 파일을 읽는 중 오류가 발생했습니다.\n\n"
                 f"해결방법:\n"
-                f"1. CSV 파일을 Excel에서 다시 저장할 때 'UTF-8' 인코딩 선택\n"
-                f"2. 메모장에서 '다른 이름으로 저장' → 인코딩을 'UTF-8'로 선택\n\n"
-                f"상세 오류: {str(e)}"
+                f"1. 파일이 올바른 Excel 형식(.xlsx, .xls)인지 확인하세요\n"
+                f"2. 파일이 손상되지 않았는지 확인하세요\n"
+                f"3. 다른 프로그램으로 파일을 열어보세요"
             )
     except pd.errors.EmptyDataError:
         raise Exception(
@@ -569,13 +613,15 @@ def load_answer_data(file):
             f"2. 샘플 파일을 다운로드하여 형식을 확인하세요"
         )
     except Exception as e:
+        file_type = "Excel" if is_excel else "CSV"
         raise Exception(
             f"❌ 파일 읽기 오류\n\n"
-            f"정답/배점 파일을 읽는 중 오류가 발생했습니다.\n\n"
+            f"정답/배점 {file_type} 파일을 읽는 중 오류가 발생했습니다.\n\n"
             f"해결방법:\n"
-            f"1. CSV 파일 형식이 올바른지 확인하세요\n"
+            f"1. {file_type} 파일 형식이 올바른지 확인하세요\n"
             f"2. 파일이 손상되지 않았는지 확인하세요\n"
-            f"3. 다른 CSV 뷰어로 파일을 열어보세요\n\n"
+            f"3. 다른 프로그램으로 파일을 열어보세요\n"
+            f"4. Excel 파일인 경우 첫 번째 시트에 데이터가 있는지 확인하세요\n\n"
             f"상세 오류: {str(e)}"
         )
 
@@ -629,7 +675,7 @@ def load_student_info(file):
     """학생 정보 파일 로드
 
     Args:
-        file: CSV 파일 객체
+        file: CSV 또는 Excel 파일 객체
 
     Returns:
         dict: 3가지 방식으로 매칭 가능한 학생 정보 딕셔너리
@@ -642,20 +688,41 @@ def load_student_info(file):
         pd.errors.EmptyDataError: 빈 파일일 경우
         Exception: 기타 파일 읽기 오류
     """
+    # 파일 확장자 확인
+    file_name = file.name.lower() if hasattr(file, 'name') else ''
+    is_excel = file_name.endswith('.xlsx') or file_name.endswith('.xls')
+    
     try:
-        df = pd.read_csv(file, encoding='utf-8')
+        if is_excel:
+            # Excel 파일 읽기
+            df = pd.read_excel(file, engine='openpyxl')
+        else:
+            # CSV 파일 읽기 - UTF-8 시도
+            df = pd.read_csv(file, encoding='utf-8')
     except UnicodeDecodeError:
-        # UTF-8로 읽기 실패 시 CP949(한글 Windows 인코딩) 시도
-        try:
-            df = pd.read_csv(file, encoding='cp949')
-        except Exception as e:
+        # CSV 파일의 경우 UTF-8로 읽기 실패 시 CP949(한글 Windows 인코딩) 시도
+        if not is_excel:
+            try:
+                file.seek(0)  # 파일 포인터를 처음으로 되돌림
+                df = pd.read_csv(file, encoding='cp949')
+            except Exception as e:
+                raise Exception(
+                    f"❌ 파일 인코딩 오류\n\n"
+                    f"원인: UTF-8과 CP949(한글 Windows) 인코딩 모두 실패했습니다.\n\n"
+                    f"해결방법:\n"
+                    f"1. Excel 파일로 저장하거나\n"
+                    f"2. CSV 파일을 Excel에서 다시 저장할 때 'UTF-8' 인코딩 선택\n"
+                    f"3. 메모장에서 '다른 이름으로 저장' → 인코딩을 'UTF-8'로 선택\n\n"
+                    f"상세 오류: {str(e)}"
+                )
+        else:
             raise Exception(
-                f"❌ 파일 인코딩 오류\n\n"
-                f"원인: UTF-8과 CP949(한글 Windows) 인코딩 모두 실패했습니다.\n\n"
+                f"❌ Excel 파일 읽기 오류\n\n"
+                f"Excel 파일을 읽는 중 오류가 발생했습니다.\n\n"
                 f"해결방법:\n"
-                f"1. CSV 파일을 Excel에서 다시 저장할 때 'UTF-8' 인코딩 선택\n"
-                f"2. 메모장에서 '다른 이름으로 저장' → 인코딩을 'UTF-8'로 선택\n\n"
-                f"상세 오류: {str(e)}"
+                f"1. 파일이 올바른 Excel 형식(.xlsx, .xls)인지 확인하세요\n"
+                f"2. 파일이 손상되지 않았는지 확인하세요\n"
+                f"3. 다른 프로그램으로 파일을 열어보세요"
             )
     except pd.errors.EmptyDataError:
         raise Exception(
@@ -666,13 +733,15 @@ def load_student_info(file):
             f"2. 샘플 파일을 다운로드하여 형식을 확인하세요"
         )
     except Exception as e:
+        file_type = "Excel" if is_excel else "CSV"
         raise Exception(
             f"❌ 파일 읽기 오류\n\n"
-            f"학생 정보 파일을 읽는 중 오류가 발생했습니다.\n\n"
+            f"학생 정보 {file_type} 파일을 읽는 중 오류가 발생했습니다.\n\n"
             f"해결방법:\n"
-            f"1. CSV 파일 형식이 올바른지 확인하세요\n"
+            f"1. {file_type} 파일 형식이 올바른지 확인하세요\n"
             f"2. 파일이 손상되지 않았는지 확인하세요\n"
-            f"3. 다른 CSV 뷰어로 파일을 열어보세요\n\n"
+            f"3. 다른 프로그램으로 파일을 열어보세요\n"
+            f"4. Excel 파일인 경우 첫 번째 시트에 데이터가 있는지 확인하세요\n\n"
             f"상세 오류: {str(e)}"
         )
 
@@ -1074,15 +1143,35 @@ def display_subject_statistics(subject_df, subject_code, result_df=None, subject
             all_wrong_df['오답률'] = (all_wrong_df['오답 인원'] / len(subject_df) * 100).round(1).astype(str) + '%'
             st.dataframe(all_wrong_df, use_container_width=True, hide_index=True)
 
-            # 오답 분포 CSV 다운로드
-            wrong_csv = all_wrong_df.to_csv(index=False, encoding='utf-8-sig')
-            st.download_button(
-                label=f"📥 {subject_name} 오답 분포 CSV 다운로드",
-                data=wrong_csv,
-                file_name=f"{subject_name}_오답분포_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
-                use_container_width=True
-            )
+            # 오답 분포 다운로드 (Excel 및 CSV)
+            col1_wrong, col2_wrong = st.columns(2)
+            
+            with col1_wrong:
+                # Excel 형식 다운로드 (한글 깨짐 방지)
+                wrong_excel_buffer = io.BytesIO()
+                with pd.ExcelWriter(wrong_excel_buffer, engine='openpyxl') as writer:
+                    all_wrong_df.to_excel(writer, sheet_name='오답분포', index=False)
+                wrong_excel_buffer.seek(0)
+                st.download_button(
+                    label=f"📥 {subject_name} 오답 분포 Excel 다운로드 (권장)",
+                    data=wrong_excel_buffer,
+                    file_name=f"{subject_name}_오답분포_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key=f"wrong_excel_{subject_code}"
+                )
+            
+            with col2_wrong:
+                # CSV 형식 다운로드
+                wrong_csv = all_wrong_df.to_csv(index=False, encoding='utf-8-sig')
+                st.download_button(
+                    label=f"📥 {subject_name} 오답 분포 CSV 다운로드",
+                    data=wrong_csv,
+                    file_name=f"{subject_name}_오답분포_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                    key=f"wrong_csv_{subject_code}"
+                )
     else:
         st.info("모든 학생이 전 문항을 맞췄습니다! 🎉")
 
@@ -1093,33 +1182,51 @@ def display_subject_statistics(subject_df, subject_code, result_df=None, subject
     col1, col2 = st.columns(2)
 
     with col1:
+        # Excel 형식 다운로드 (한글 깨짐 방지)
+        excel_buffer = io.BytesIO()
+        with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+            subject_df.to_excel(writer, sheet_name='채점결과', index=False)
+        excel_buffer.seek(0)
+        st.download_button(
+            label=f"📥 Excel 다운로드 (권장)",
+            data=excel_buffer,
+            file_name=f"{subject_name}_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key=f"excel_{subject_code}"
+        )
+
+    with col2:
+        # CSV 형식 다운로드
         subject_csv = subject_df.to_csv(index=False, encoding='utf-8-sig')
         st.download_button(
             label=f"📥 CSV 다운로드",
             data=subject_csv,
             file_name=f"{subject_name}_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True,
+            key=f"csv_{subject_code}"
         )
 
-    with col2:
-        if REPORTLAB_AVAILABLE:
-            # 고유한 키 생성을 위해 subject_code 사용
-            button_key = f"pdf_{subject_code}_{id(subject_df)}"
-            if st.button(f"📄 PDF 리포트 생성", key=button_key, use_container_width=True):
-                with st.spinner("PDF 생성 중..."):
-                    pdf_buffer = generate_subject_pdf_report(subject_name, subject_df, subject_code)
-                    st.download_button(
-                        label=f"📥 PDF 다운로드",
-                        data=pdf_buffer,
-                        file_name=f"{subject_name}_리포트_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True,
-                        key=f"pdf_download_{subject_code}_{id(subject_df)}"
-                    )
-                st.success("✅ PDF가 생성되었습니다!")
-        else:
-            st.info("📄 PDF 기능을 사용하려면 reportlab을 설치하세요.\n\n`pip install reportlab`")
+    # PDF 리포트 생성 (별도 섹션)
+    st.markdown("---")
+    if REPORTLAB_AVAILABLE:
+        # 고유한 키 생성을 위해 subject_code 사용
+        button_key = f"pdf_{subject_code}_{id(subject_df)}"
+        if st.button(f"📄 PDF 리포트 생성", key=button_key, use_container_width=True):
+            with st.spinner("PDF 생성 중..."):
+                pdf_buffer = generate_subject_pdf_report(subject_name, subject_df, subject_code)
+                st.download_button(
+                    label=f"📥 PDF 다운로드",
+                    data=pdf_buffer,
+                    file_name=f"{subject_name}_리포트_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"pdf_download_{subject_code}_{id(subject_df)}"
+                )
+            st.success("✅ PDF가 생성되었습니다!")
+    else:
+        st.info("📄 PDF 기능을 사용하려면 reportlab을 설치하세요.\n\n`pip install reportlab`")
 
 
 def grade_students(student_df, answer_df, student_info_dict=None, subject_code_mapping=None, debug_mode=False):
@@ -1600,22 +1707,35 @@ if student_file and answer_file:
                         key="download_wrongs"
                     )
             else:
-                # 일반 과목: CSV 다운로드
+                # 일반 과목: Excel 및 CSV 다운로드
                 col1, col2 = st.columns(2)
 
                 with col1:
+                    # Excel 형식 다운로드 (한글 깨짐 방지)
+                    excel_buffer = io.BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        result_df.to_excel(writer, sheet_name='전체 채점결과', index=False)
+                    excel_buffer.seek(0)
+                    st.download_button(
+                        label="📥 전체 채점 결과 Excel 다운로드 (권장)",
+                        data=excel_buffer,
+                        file_name=f"전체_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="download_all_excel"
+                    )
+
+                with col2:
+                    # CSV 형식 다운로드
                     csv = result_df.to_csv(index=False, encoding='utf-8-sig')
                     st.download_button(
                         label="📥 전체 채점 결과 CSV 다운로드",
                         data=csv,
                         file_name=f"전체_채점결과_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                         mime="text/csv",
-                        use_container_width=True
+                        use_container_width=True,
+                        key="download_all_csv"
                     )
-
-                with col2:
-                    # 전체 통계 리포트 이미지 다운로드 - 일반 과목용 placeholder
-                    st.info("일반 과목은 CSV로 다운로드됩니다")
 
             # 전체 통계 리포트 이미지 (공통)
             st.markdown("---")
